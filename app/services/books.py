@@ -8,6 +8,14 @@ from sqlalchemy.orm import Session
 from app.models import Book
 from app.schemas import BookCreate, BookPage, BookSort, BookUpdate
 
+# ORDER BY clause for each accepted ``sort`` value.
+SORT_ORDER = {
+    "title": Book.title.asc(),
+    "-title": Book.title.desc(),
+    "price": Book.price_cents.asc(),
+    "-price": Book.price_cents.desc(),
+}
+
 
 def create_book(db: Session, data: BookCreate) -> Book:
     """Add a book to the catalogue.
@@ -69,7 +77,9 @@ def list_books(
 
     total = db.scalar(select(func.count()).select_from(query.subquery()))
 
-    # TODO: apply ``sort``
+    if sort:
+        query = query.order_by(SORT_ORDER[sort])
+    # order_by() appends, so id is the tie-breaker after a sort key, or the whole order without one.
     books = db.scalars(query.order_by(Book.id.asc()).limit(limit).offset(offset)).all()
 
     return BookPage(items=books, total=total, limit=limit, offset=offset)
