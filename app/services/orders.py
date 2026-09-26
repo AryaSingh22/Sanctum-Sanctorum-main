@@ -2,6 +2,7 @@
 from datetime import datetime
 from typing import Dict, List, NamedTuple
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.errors import ConflictError, NotFoundError
@@ -99,12 +100,27 @@ def get_order(db: Session, order_id: int) -> Order:
     return order
 
 
+def leave_pending(db: Session, order: Order, status: OrderStatus, action: str) -> None:
+    """Move a pending order to ``status``, or raise 409 if it is no longer pending.
+
+    The status check and change are one UPDATE, so when several pay/cancel requests arrive at
+    once exactly one moves the order and the others find it has already left ``pending``.
+    """
+    result = db.execute(
+        update(Order)
+        .where(Order.id == order.id, Order.status == OrderStatus.PENDING.value)
+        .values(status=status.value)
+        .execution_options(synchronize_session="fetch")
+    )
+    if result.rowcount != 1:
+        db.refresh(order)
+        raise ConflictError(f"Cannot {action} an order that is {order.status}")
+
+
 def pay_order(db: Session, order_id: int) -> Order:
     """Mark a pending order as paid. 404 if missing; 409 if not pending."""
     order = get_order(db, order_id)
-    if order.status != OrderStatus.PENDING.value:
-        raise ConflictError(f"Cannot pay an order that is {order.status}")
-    order.status = OrderStatus.PAID.value
+    leave_pending(db, order, OrderStatus.PAID, action="pay")
     db.commit()
     db.refresh(order)
     return order
@@ -113,9 +129,7 @@ def pay_order(db: Session, order_id: int) -> Order:
 def cancel_order(db: Session, order_id: int) -> Order:
     """Cancel a pending order and restore the reserved stock. 404 if missing; 409 if not pending."""
     order = get_order(db, order_id)
-    if order.status != OrderStatus.PENDING.value:
-        raise ConflictError(f"Cannot cancel an order that is {order.status}")
-    order.status = OrderStatus.CANCELLED.value
+    leave_pending(db, order, OrderStatus.CANCELLED, action="cancel")
     for item in order.items:
         return_stock(db, item.book_id, item.quantity)
     db.commit()

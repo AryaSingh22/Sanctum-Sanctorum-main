@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.errors import ConflictError, NotFoundError
@@ -114,15 +114,27 @@ def return_loan(db: Session, loan_id: int, now: datetime) -> LoanOut:
     of stock and charges a late fee (see ``calculate_late_fee``).
     """
     loan = load_loan(db, loan_id)
-    if loan.returned_at is not None:
-        raise ConflictError("Loan has already been returned")
-
-    loan.returned_at = now
-    loan.late_fee_cents = calculate_late_fee(loan.due_at, now, loan.book.price_cents)
+    mark_returned(db, loan, now)
     return_stock(db, loan.book_id, 1)
     db.commit()
     db.refresh(loan)
     return to_loan_out(loan, now)
+
+
+def mark_returned(db: Session, loan: Loan, now: datetime) -> None:
+    """Record the return and its late fee, or raise 409 if the loan was already returned.
+
+    One conditional UPDATE, so simultaneous returns of the same loan cannot both restore stock.
+    """
+    late_fee_cents = calculate_late_fee(loan.due_at, now, loan.book.price_cents)
+    result = db.execute(
+        update(Loan)
+        .where(Loan.id == loan.id, Loan.returned_at.is_(None))
+        .values(returned_at=now, late_fee_cents=late_fee_cents)
+        .execution_options(synchronize_session="fetch")
+    )
+    if result.rowcount != 1:
+        raise ConflictError("Loan has already been returned")
 
 
 def list_member_loans(

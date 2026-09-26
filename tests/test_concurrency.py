@@ -95,6 +95,54 @@ def test_last_copy_is_sold_only_once(session_factory):
     assert stock_of(session_factory, book_id) == 0
 
 
+def place_order(session_factory, member_id: int, book_id: int, quantity: int) -> int:
+    with session_factory() as db:
+        body = OrderCreate(member_id=member_id, items=[{"book_id": book_id, "quantity": quantity}])
+        return orders.create_order(db, body, NOW).id
+
+
+def order_status(session_factory, order_id: int) -> str:
+    with session_factory() as db:
+        return orders.get_order(db, order_id).status
+
+
+def test_order_is_cancelled_only_once(session_factory):
+    [member_id] = add_members(session_factory, 1)
+    book_id = add_book(session_factory, stock=10)
+    order_id = place_order(session_factory, member_id, book_id, quantity=3)
+
+    outcomes = run_at_once(session_factory, [lambda db: orders.cancel_order(db, order_id)] * THREADS)
+
+    assert outcomes == ["conflict"] * (THREADS - 1) + ["ok"]
+    assert stock_of(session_factory, book_id) == 10
+
+
+def test_order_is_either_paid_or_cancelled_never_both(session_factory):
+    [member_id] = add_members(session_factory, 1)
+    book_id = add_book(session_factory, stock=10)
+    order_id = place_order(session_factory, member_id, book_id, quantity=3)
+    pay = lambda db: orders.pay_order(db, order_id)  # noqa: E731
+    cancel = lambda db: orders.cancel_order(db, order_id)  # noqa: E731
+
+    outcomes = run_at_once(session_factory, [pay, cancel] * (THREADS // 2))
+
+    assert outcomes == ["conflict"] * (THREADS - 1) + ["ok"]
+    expected_stock = {"paid": 7, "cancelled": 10}
+    assert stock_of(session_factory, book_id) == expected_stock[order_status(session_factory, order_id)]
+
+
+def test_loan_is_returned_only_once(session_factory):
+    [member_id] = add_members(session_factory, 1)
+    book_id = add_book(session_factory, stock=5)
+    with session_factory() as db:
+        loan_id = loans.create_loan(db, LoanCreate(member_id=member_id, book_id=book_id), NOW).id
+
+    outcomes = run_at_once(session_factory, [lambda db: loans.return_loan(db, loan_id, NOW)] * THREADS)
+
+    assert outcomes == ["conflict"] * (THREADS - 1) + ["ok"]
+    assert stock_of(session_factory, book_id) == 5
+
+
 def test_last_copy_is_lent_only_once(session_factory):
     member_ids = add_members(session_factory, THREADS)
     book_id = add_book(session_factory, stock=1)
