@@ -141,6 +141,9 @@ class MemberOut(BaseModel):
     created_at: datetime
 
 
+MemberPage = Page[MemberOut]
+
+
 class MemberStats(BaseModel):
     member_id: int
     orders_paid: int

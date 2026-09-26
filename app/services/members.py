@@ -5,10 +5,10 @@ from typing import List
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db import commit_or_conflict
+from app.db import commit_or_conflict, fetch_page
 from app.errors import ConflictError, ForbiddenError, NotFoundError
 from app.models import Loan, Member, MemberTier, Order, OrderStatus
-from app.schemas import MemberCreate, MemberStats
+from app.schemas import MemberCreate, MemberPage, MemberStats
 
 # Tiers from lowest to highest; a member's rank is their index in this list.
 TIER_ORDER: List[str] = [
@@ -55,6 +55,12 @@ def get_member(db: Session, member_id: int) -> Member:
     if member is None:
         raise NotFoundError("Member not found")
     return member
+
+
+def list_members(db: Session, limit: int = 20, offset: int = 0) -> MemberPage:
+    """Members ordered by id, one page at a time; ``total`` counts every member."""
+    members, total = fetch_page(db, select(Member).order_by(Member.id), limit, offset)
+    return MemberPage(items=members, total=total, limit=limit, offset=offset)
 
 
 def list_member_orders(db: Session, member_id: int) -> List[Order]:
