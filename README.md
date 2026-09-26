@@ -109,16 +109,19 @@ from `cmd.exe`. Remember to activate the virtual environment in every new termin
 ```
 app/
   main.py        app factory, error handlers, router wiring
-  db.py          engine, session, Base, get_db dependency
+  db.py          engine (SQLite or Postgres), session, Base, get_db, paging/commit helpers
+  errors.py      domain errors raised by services, mapped to 404/403/409 in main.py
   clock.py       get_now dependency (always use this for the current time)
-  models.py      SQLAlchemy models
+  models.py      SQLAlchemy models and database constraints
   schemas.py     Pydantic request/response models and validation
   seed.py        demo data
   routers/       HTTP layer (thin)
-  services/      business logic  <- most of your work is here
+  services/      business logic
 frontend/        static UI served at /
-tests/           the test suite (your acceptance criteria)
+tests/           the provided suite, plus added concurrency, integrity and edge-case tests
+render.yaml      Render deployment (API + UI as one web service; Neon Postgres)
 SPEC.md          the full API specification
+NOTES.md         live URL, decisions, trade-offs and AI usage
 ```
 
 ## Running tests
