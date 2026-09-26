@@ -1,5 +1,5 @@
 """Book catalogue operations."""
-from typing import Optional
+from typing import Dict, List, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
@@ -37,6 +37,15 @@ def get_book(db: Session, book_id: int) -> Book:
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
     return book
+
+
+def get_books(db: Session, book_ids: List[int]) -> Dict[int, Book]:
+    """Load several books in one query, keyed by id; 404 if any of them is missing."""
+    books = {book.id: book for book in db.scalars(select(Book).where(Book.id.in_(book_ids)))}
+    missing = [str(book_id) for book_id in book_ids if book_id not in books]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Book not found: {', '.join(missing)}")
+    return books
 
 
 def update_book(db: Session, book_id: int, data: BookUpdate) -> Book:
