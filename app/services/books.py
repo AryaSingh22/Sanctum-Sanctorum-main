@@ -2,7 +2,7 @@
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Book
@@ -56,7 +56,9 @@ def list_books(
     """
     query = select(Book)
     if q:
-        query = query.where(Book.title.icontains(q, autoescape=True))
+        query = query.where(
+            or_(Book.title.icontains(q, autoescape=True), Book.author.icontains(q, autoescape=True))
+        )
     if restricted is not None:
         query = query.where(Book.restricted == restricted)
     # TODO: min_price / max_price filters
