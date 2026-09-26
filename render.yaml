@@ -1,0 +1,20 @@
+# Render Blueprint: one free web service that serves the API and the UI at /.
+# The database is Neon Postgres. Its connection string is entered in the Render dashboard
+# as SANCTUM_DATABASE_URL and is never committed.
+services:
+  - type: web
+    name: sanctum-sanctorum
+    runtime: python
+    plan: free
+    region: singapore
+    # Install the exact versions pinned in uv.lock: the runtime dependencies plus the
+    # Postgres driver group, without the test tools.
+    buildCommand: >-
+      pip install uv &&
+      uv export --frozen --no-dev --group postgres --no-hashes -o requirements.txt &&
+      pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: SANCTUM_DATABASE_URL
+        sync: false
