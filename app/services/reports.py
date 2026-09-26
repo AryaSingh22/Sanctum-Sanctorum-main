@@ -12,7 +12,8 @@ def top_books(db: Session, limit: int = 5) -> List[TopBook]:
     """Best-selling books.
 
     Rules: copies_sold sums quantities over ``paid`` orders only; books with no sales are
-    excluded; sorted by copies_sold desc, then title asc; at most ``limit`` rows.
+    excluded; sorted by copies_sold desc, then title asc (case-insensitive, as in the book
+    list), then id; at most ``limit`` rows.
     """
     copies_sold = func.sum(OrderItem.quantity).label("copies_sold")
     rows = db.execute(
@@ -21,7 +22,7 @@ def top_books(db: Session, limit: int = 5) -> List[TopBook]:
         .join(Order, Order.id == OrderItem.order_id)
         .where(Order.status == OrderStatus.PAID.value)
         .group_by(Book.id, Book.title)
-        .order_by(copies_sold.desc(), Book.title.asc(), Book.id.asc())
+        .order_by(copies_sold.desc(), func.lower(Book.title).asc(), Book.id.asc())
         .limit(limit)
     )
     return [TopBook(book_id=row.id, title=row.title, copies_sold=row.copies_sold) for row in rows]

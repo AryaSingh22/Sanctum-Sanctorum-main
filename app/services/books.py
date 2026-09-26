@@ -11,10 +11,11 @@ from app.schemas import BookCreate, BookPage, BookSort, BookUpdate
 
 DUPLICATE_ISBN = "A book with this ISBN already exists"
 
-# ORDER BY clause for each accepted ``sort`` value.
+# ORDER BY clause for each accepted ``sort`` value. Titles compare case-insensitively so SQLite
+# (uppercase first by default) and Postgres return the same order.
 SORT_ORDER = {
-    "title": Book.title.asc(),
-    "-title": Book.title.desc(),
+    "title": func.lower(Book.title).asc(),
+    "-title": func.lower(Book.title).desc(),
     "price": Book.price_cents.asc(),
     "-price": Book.price_cents.desc(),
 }
