@@ -2,10 +2,14 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
+from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Loan, MemberTier
+from app.models import Book, Loan, Member, MemberTier
 from app.schemas import LoanCreate, LoanOut, LoanStatus
+from app.services.books import get_book
+from app.services.members import ensure_can_access_restricted, get_member
 
 # Maximum concurrent unreturned loans per tier (None = unlimited).
 TIER_LOAN_LIMIT: Dict[str, Optional[int]] = {
@@ -63,12 +67,45 @@ def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
     On success: borrowed_at = now, due_at = now + 14 days, returned_at None,
     late_fee_cents 0, and stock is decremented by one.
     """
-    raise NotImplementedError("create_loan")
+    member = get_member(db, data.member_id)
+    book = get_book(db, data.book_id)
+    if book.restricted:
+        ensure_can_access_restricted(member)
+    ensure_member_can_borrow(db, member, book, now)
+    if book.stock <= 0:
+        raise HTTPException(status_code=409, detail="Book is out of stock")
+
+    book.stock -= 1
+    loan = Loan(member_id=member.id, book_id=book.id, borrowed_at=now, due_at=now + LOAN_PERIOD, late_fee_cents=0)
+    db.add(loan)
+    db.commit()
+    db.refresh(loan)
+    return to_loan_out(loan, now)
+
+
+def ensure_member_can_borrow(db: Session, member: Member, book: Book, now: datetime) -> None:
+    """Raise 409 if the member has an overdue loan, already holds this book, or is at their tier limit."""
+    open_loans = db.scalars(select(Loan).where(Loan.member_id == member.id, Loan.returned_at.is_(None))).all()
+    if any(loan.is_overdue(now) for loan in open_loans):
+        raise HTTPException(status_code=409, detail="Member has an overdue loan")
+    if any(loan.book_id == book.id for loan in open_loans):
+        raise HTTPException(status_code=409, detail="Member already has this book on loan")
+    limit = TIER_LOAN_LIMIT[member.tier]
+    if limit is not None and len(open_loans) >= limit:
+        raise HTTPException(status_code=409, detail=f"Loan limit of {limit} reached for tier '{member.tier}'")
+
+
+def load_loan(db: Session, loan_id: int) -> Loan:
+    """Return the Loan row by id, or raise 404."""
+    loan = db.get(Loan, loan_id)
+    if loan is None:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    return loan
 
 
 def get_loan(db: Session, loan_id: int, now: datetime) -> LoanOut:
     """Return a loan by id, or raise 404."""
-    raise NotImplementedError("get_loan")
+    return to_loan_out(load_loan(db, loan_id), now)
 
 
 def return_loan(db: Session, loan_id: int, now: datetime) -> LoanOut:
