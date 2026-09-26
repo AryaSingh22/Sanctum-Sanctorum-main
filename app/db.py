@@ -1,7 +1,8 @@
 import os
 from collections.abc import Iterator
+from typing import Any, List, Tuple
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, Select, create_engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -45,6 +46,12 @@ def get_db() -> Iterator[Session]:
         yield db
     finally:
         db.close()
+
+
+def fetch_page(db: Session, query: Select, limit: int, offset: int) -> Tuple[List[Any], int]:
+    """Return one page of ``query``'s rows and the number of rows across all pages."""
+    total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery()))
+    return list(db.scalars(query.limit(limit).offset(offset))), total
 
 
 def commit_or_conflict(db: Session, detail: str) -> None:

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Annotated, List, Literal, Optional
+from typing import Annotated, Generic, List, Literal, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
@@ -46,6 +46,20 @@ def isbn13_check_digit(first_twelve: str) -> int:
 
 class HealthOut(BaseModel):
     status: str
+
+
+# --- Pagination -------------------------------------------------------------------------
+
+ItemT = TypeVar("ItemT")
+
+
+class Page(BaseModel, Generic[ItemT]):
+    """One page of a list; ``total`` counts every match, not just this page."""
+
+    items: List[ItemT]
+    total: int
+    limit: int
+    offset: int
 
 
 # --- Books ------------------------------------------------------------------------------
@@ -94,12 +108,7 @@ class BookOut(BaseModel):
     restricted: bool
 
 
-class BookPage(BaseModel):
-    items: List[BookOut]
-    total: int
-    limit: int
-    offset: int
-
+BookPage = Page[BookOut]
 
 BookSort = Literal["title", "-title", "price", "-price"]
 
