@@ -18,7 +18,9 @@ from app.models import MemberTier
 Title = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 AuthorName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 MemberName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-NonNegativeInt = Annotated[int, Field(ge=0)]
+# Largest value a (32-bit) INTEGER column holds on Postgres; bigger input is a 422, not a 500.
+MAX_COLUMN_INT = 2_147_483_647
+NonNegativeInt = Annotated[int, Field(ge=0, le=MAX_COLUMN_INT)]
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -144,7 +146,7 @@ class MemberStats(BaseModel):
 
 class OrderItemIn(BaseModel):
     book_id: int
-    quantity: int = Field(ge=1)
+    quantity: int = Field(ge=1, le=MAX_COLUMN_INT)
 
 
 class OrderCreate(BaseModel):

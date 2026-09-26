@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     ColumnElement,
@@ -73,10 +74,11 @@ class Order(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), index=True)
     status: Mapped[str] = mapped_column(String(20), default=OrderStatus.PENDING.value)
-    subtotal_cents: Mapped[int] = mapped_column(Integer)
+    # Totals are price x quantity summed over items, which can outgrow a 32-bit column.
+    subtotal_cents: Mapped[int] = mapped_column(BigInteger)
     discount_percent: Mapped[int] = mapped_column(Integer)
-    discount_cents: Mapped[int] = mapped_column(Integer)
-    total_cents: Mapped[int] = mapped_column(Integer)
+    discount_cents: Mapped[int] = mapped_column(BigInteger)
+    total_cents: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
     member: Mapped[Member] = relationship(back_populates="orders")
