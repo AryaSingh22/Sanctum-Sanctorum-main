@@ -1,7 +1,7 @@
 """Book catalogue operations."""
 from typing import Dict, List, Optional
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.errors import ConflictError, NotFoundError
@@ -46,6 +46,31 @@ def get_books(db: Session, book_ids: List[int]) -> Dict[int, Book]:
     if missing:
         raise NotFoundError(f"Book not found: {', '.join(missing)}")
     return books
+
+
+def take_stock(db: Session, book_id: int, quantity: int) -> bool:
+    """Take ``quantity`` copies if that many are left; return False, changing nothing, if not.
+
+    The check and the decrement are a single UPDATE, so two requests can never both take the
+    last copy: the database applies them one after the other and the second matches no row.
+    """
+    result = db.execute(
+        update(Book)
+        .where(Book.id == book_id, Book.stock >= quantity)
+        .values(stock=Book.stock - quantity)
+        .execution_options(synchronize_session="fetch")
+    )
+    return result.rowcount == 1
+
+
+def return_stock(db: Session, book_id: int, quantity: int) -> None:
+    """Put ``quantity`` copies back, adding in the database so simultaneous returns all count."""
+    db.execute(
+        update(Book)
+        .where(Book.id == book_id)
+        .values(stock=Book.stock + quantity)
+        .execution_options(synchronize_session="fetch")
+    )
 
 
 def update_book(db: Session, book_id: int, data: BookUpdate) -> Book:

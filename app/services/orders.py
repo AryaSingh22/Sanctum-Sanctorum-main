@@ -5,9 +5,9 @@ from typing import Dict, List, NamedTuple
 from sqlalchemy.orm import Session
 
 from app.errors import ConflictError, NotFoundError
-from app.models import Book, Member, MemberTier, Order, OrderItem, OrderStatus
+from app.models import Member, MemberTier, Order, OrderItem, OrderStatus
 from app.schemas import OrderCreate, OrderItemIn
-from app.services.books import get_books
+from app.services.books import get_books, return_stock, take_stock
 from app.services.members import ensure_can_access_restricted, get_member
 
 # Percentage discount granted by each membership tier.
@@ -46,13 +46,12 @@ def price_order(member: Member, items: List[OrderItem]) -> OrderPricing:
     return OrderPricing(subtotal, percent, discount, subtotal - discount)
 
 
-def reserve_stock(books: Dict[int, Book], lines: List[OrderItemIn]) -> None:
-    """Take every line's quantity out of stock, or raise 409 without changing anything."""
-    short = [str(line.book_id) for line in lines if books[line.book_id].stock < line.quantity]
-    if short:
-        raise ConflictError(f"Not enough stock for book: {', '.join(short)}")
+def reserve_stock(db: Session, lines: List[OrderItemIn]) -> None:
+    """Take every line's quantity out of stock, or raise 409 and undo the lines already taken."""
     for line in lines:
-        books[line.book_id].stock -= line.quantity
+        if not take_stock(db, line.book_id, line.quantity):
+            db.rollback()
+            raise ConflictError(f"Not enough stock for book: {line.book_id}")
 
 
 def create_order(db: Session, data: OrderCreate, now: datetime) -> Order:
@@ -69,7 +68,7 @@ def create_order(db: Session, data: OrderCreate, now: datetime) -> Order:
     books = get_books(db, [line.book_id for line in data.items])
     if any(book.restricted for book in books.values()):
         ensure_can_access_restricted(member)
-    reserve_stock(books, data.items)
+    reserve_stock(db, data.items)
 
     items = [
         OrderItem(book_id=line.book_id, quantity=line.quantity, unit_price_cents=books[line.book_id].price_cents)
@@ -118,7 +117,7 @@ def cancel_order(db: Session, order_id: int) -> Order:
         raise ConflictError(f"Cannot cancel an order that is {order.status}")
     order.status = OrderStatus.CANCELLED.value
     for item in order.items:
-        item.book.stock += item.quantity
+        return_stock(db, item.book_id, item.quantity)
     db.commit()
     db.refresh(order)
     return order

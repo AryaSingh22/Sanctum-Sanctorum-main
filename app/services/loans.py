@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.errors import ConflictError, NotFoundError
 from app.models import Book, Loan, Member, MemberTier
 from app.schemas import LoanCreate, LoanOut, LoanStatus
-from app.services.books import get_book
+from app.services.books import get_book, return_stock, take_stock
 from app.services.members import ensure_can_access_restricted, get_member
 
 # Maximum concurrent unreturned loans per tier (None = unlimited).
@@ -72,10 +72,9 @@ def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
     if book.restricted:
         ensure_can_access_restricted(member)
     ensure_member_can_borrow(db, member, book, now)
-    if book.stock <= 0:
+    if not take_stock(db, book.id, 1):
         raise ConflictError("Book is out of stock")
 
-    book.stock -= 1
     loan = Loan(member_id=member.id, book_id=book.id, borrowed_at=now, due_at=now + LOAN_PERIOD, late_fee_cents=0)
     db.add(loan)
     db.commit()
@@ -120,7 +119,7 @@ def return_loan(db: Session, loan_id: int, now: datetime) -> LoanOut:
 
     loan.returned_at = now
     loan.late_fee_cents = calculate_late_fee(loan.due_at, now, loan.book.price_cents)
-    loan.book.stock += 1
+    return_stock(db, loan.book_id, 1)
     db.commit()
     db.refresh(loan)
     return to_loan_out(loan, now)
