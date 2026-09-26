@@ -62,7 +62,10 @@ def list_books(
         )
     if restricted is not None:
         query = query.where(Book.restricted == restricted)
-    # TODO: min_price / max_price filters
+    if min_price is not None:
+        query = query.where(Book.price_cents >= min_price)
+    if max_price is not None:
+        query = query.where(Book.price_cents <= max_price)
 
     total = db.scalar(select(func.count()).select_from(query.subquery()))
 
