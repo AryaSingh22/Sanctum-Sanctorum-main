@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, ColumnElement, DateTime, ForeignKey, Integer, String, and_
+from sqlalchemy.ext.hybrid import hybrid_method
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -95,10 +96,20 @@ class Loan(Base):
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), index=True)
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id"), index=True)
     borrowed_at: Mapped[datetime] = mapped_column(DateTime)
-    # TODO: the loan model is incomplete. Still missing (see SPEC.md, "Loans"):
-    #   - due_at: when the book must be back (borrowed_at + 14 days)
-    #   - returned_at: nullable, set when the book is returned
-    #   - late_fee_cents: charged on return, defaults to 0
+    due_at: Mapped[datetime] = mapped_column(DateTime)
+    returned_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    late_fee_cents: Mapped[int] = mapped_column(Integer, default=0)
 
     member: Mapped[Member] = relationship(back_populates="loans")
     book: Mapped[Book] = relationship()
+
+    # The single definition of "overdue", usable on an instance and inside queries.
+    # The boundary is strict: at exactly due_at a loan is not overdue yet.
+    @hybrid_method
+    def is_overdue(self, now: datetime) -> bool:
+        return self.returned_at is None and now > self.due_at
+
+    @is_overdue.inplace.expression
+    @classmethod
+    def _is_overdue_expression(cls, now: datetime) -> ColumnElement[bool]:
+        return and_(cls.returned_at.is_(None), cls.due_at < now)
