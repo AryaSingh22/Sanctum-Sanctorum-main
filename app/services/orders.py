@@ -48,8 +48,12 @@ def price_order(member: Member, items: List[OrderItem]) -> OrderPricing:
 
 
 def reserve_stock(db: Session, lines: List[OrderItemIn]) -> None:
-    """Take every line's quantity out of stock, or raise 409 and undo the lines already taken."""
-    for line in lines:
+    """Take every line's quantity out of stock, or raise 409 and undo the lines already taken.
+
+    Books are always taken in id order. Each UPDATE locks its row until commit, so two orders
+    for the same books listed in opposite order would otherwise wait on each other (a deadlock).
+    """
+    for line in sorted(lines, key=lambda line: line.book_id):
         if not take_stock(db, line.book_id, line.quantity):
             db.rollback()
             raise ConflictError(f"Not enough stock for book: {line.book_id}")

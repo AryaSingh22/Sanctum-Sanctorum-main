@@ -42,9 +42,9 @@ def add_members(session_factory, count: int) -> List[int]:
         return [member.id for member in members]
 
 
-def add_book(session_factory, stock: int) -> int:
+def add_book(session_factory, stock: int, seed: int = 1) -> int:
     with session_factory() as db:
-        book = Book(title="Contested", author="Someone", isbn=isbn13(1), price_cents=1000, stock=stock)
+        book = Book(title=f"Contested {seed}", author="Someone", isbn=isbn13(seed), price_cents=1000, stock=stock)
         db.add(book)
         db.commit()
         return book.id
@@ -93,6 +93,20 @@ def test_last_copy_is_sold_only_once(session_factory):
 
     assert outcomes == ["conflict"] * (THREADS - 1) + ["ok"]
     assert stock_of(session_factory, book_id) == 0
+
+
+def test_orders_naming_the_same_books_in_opposite_order_all_go_through(session_factory):
+    member_ids = add_members(session_factory, THREADS)
+    first, second = add_book(session_factory, stock=100, seed=1), add_book(session_factory, stock=100, seed=2)
+    order = lambda member_id, book_ids: lambda db: orders.create_order(  # noqa: E731
+        db, OrderCreate(member_id=member_id, items=[{"book_id": b, "quantity": 1} for b in book_ids]), NOW
+    )
+    calls = [order(member_id, [first, second] if n % 2 else [second, first]) for n, member_id in enumerate(member_ids)]
+
+    outcomes = run_at_once(session_factory, calls)
+
+    assert outcomes == ["ok"] * THREADS
+    assert stock_of(session_factory, first) == stock_of(session_factory, second) == 100 - THREADS
 
 
 def place_order(session_factory, member_id: int, book_id: int, quantity: int) -> int:
