@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.db import commit_or_conflict
 from app.errors import ConflictError, NotFoundError
 from app.models import Book, Loan, Member, MemberTier
 from app.schemas import LoanCreate, LoanOut, LoanStatus
@@ -22,6 +23,8 @@ TIER_LOAN_LIMIT: Dict[str, Optional[int]] = {
 LOAN_PERIOD = timedelta(days=14)
 LATE_FEE_PER_DAY_CENTS = 25
 ONE_DAY = timedelta(days=1)
+
+ALREADY_BORROWED = "Member already has this book on loan"
 
 
 def loan_status(loan: Loan, now: datetime) -> LoanStatus:
@@ -77,7 +80,8 @@ def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
 
     loan = Loan(member_id=member.id, book_id=book.id, borrowed_at=now, due_at=now + LOAN_PERIOD, late_fee_cents=0)
     db.add(loan)
-    db.commit()
+    # Rolling back on a duplicate also undoes the copy taken from stock above.
+    commit_or_conflict(db, ALREADY_BORROWED)
     db.refresh(loan)
     return to_loan_out(loan, now)
 
@@ -88,7 +92,7 @@ def ensure_member_can_borrow(db: Session, member: Member, book: Book, now: datet
     if any(loan.is_overdue(now) for loan in open_loans):
         raise ConflictError("Member has an overdue loan")
     if any(loan.book_id == book.id for loan in open_loans):
-        raise ConflictError("Member already has this book on loan")
+        raise ConflictError(ALREADY_BORROWED)
     limit = TIER_LOAN_LIMIT[member.tier]
     if limit is not None and len(open_loans) >= limit:
         raise ConflictError(f"Loan limit of {limit} reached for tier '{member.tier}'")

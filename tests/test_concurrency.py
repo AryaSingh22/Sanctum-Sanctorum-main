@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import Base
 from app.errors import ConflictError
 from app.models import Book, Member, MemberTier
-from app.schemas import LoanCreate, OrderCreate
-from app.services import loans, orders
+from app.schemas import BookCreate, LoanCreate, MemberCreate, OrderCreate
+from app.services import books, loans, members, orders
 from tests.conftest import isbn13
 
 NOW = datetime(2026, 1, 1, 12)
@@ -141,6 +141,33 @@ def test_loan_is_returned_only_once(session_factory):
 
     assert outcomes == ["conflict"] * (THREADS - 1) + ["ok"]
     assert stock_of(session_factory, book_id) == 5
+
+
+def test_same_book_is_lent_to_a_member_only_once(session_factory):
+    [member_id] = add_members(session_factory, 1)
+    book_id = add_book(session_factory, stock=10)
+    borrow = lambda db: loans.create_loan(db, LoanCreate(member_id=member_id, book_id=book_id), NOW)  # noqa: E731
+
+    outcomes = run_at_once(session_factory, [borrow] * THREADS)
+
+    assert outcomes == ["conflict"] * (THREADS - 1) + ["ok"]
+    assert stock_of(session_factory, book_id) == 9
+
+
+def test_duplicate_isbn_is_a_conflict_not_a_crash(session_factory):
+    body = BookCreate(title="Twin", author="Someone", isbn=isbn13(2), price_cents=100, stock=1)
+
+    outcomes = run_at_once(session_factory, [lambda db: books.create_book(db, body)] * THREADS)
+
+    assert outcomes == ["conflict"] * (THREADS - 1) + ["ok"]
+
+
+def test_duplicate_email_is_a_conflict_not_a_crash(session_factory):
+    body = MemberCreate(name="Twin", email="twin@example.com")
+
+    outcomes = run_at_once(session_factory, [lambda db: members.create_member(db, body, NOW)] * THREADS)
+
+    assert outcomes == ["conflict"] * (THREADS - 1) + ["ok"]
 
 
 def test_last_copy_is_lent_only_once(session_factory):

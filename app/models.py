@@ -5,7 +5,18 @@ import enum
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Boolean, ColumnElement, DateTime, ForeignKey, Integer, String, and_
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    ColumnElement,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    and_,
+    text,
+)
 from sqlalchemy.ext.hybrid import hybrid_method
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,6 +40,10 @@ class OrderStatus(str, enum.Enum):
 
 class Book(Base):
     __tablename__ = "books"
+    __table_args__ = (
+        CheckConstraint("stock >= 0", name="ck_books_stock_not_negative"),
+        CheckConstraint("price_cents >= 0", name="ck_books_price_not_negative"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     title: Mapped[str] = mapped_column(String(200))
@@ -91,6 +106,17 @@ class OrderItem(Base):
 
 class Loan(Base):
     __tablename__ = "loans"
+    __table_args__ = (
+        # At most one unreturned loan of the same book per member (a partial unique index).
+        Index(
+            "uq_loans_open_member_book",
+            "member_id",
+            "book_id",
+            unique=True,
+            sqlite_where=text("returned_at IS NULL"),
+            postgresql_where=text("returned_at IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), index=True)

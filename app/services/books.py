@@ -4,9 +4,12 @@ from typing import Dict, List, Optional
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.db import commit_or_conflict
 from app.errors import ConflictError, NotFoundError
 from app.models import Book
 from app.schemas import BookCreate, BookPage, BookSort, BookUpdate
+
+DUPLICATE_ISBN = "A book with this ISBN already exists"
 
 # ORDER BY clause for each accepted ``sort`` value.
 SORT_ORDER = {
@@ -23,10 +26,10 @@ def create_book(db: Session, data: BookCreate) -> Book:
     Rules: the (already normalized) ISBN must be unique -> 409 otherwise.
     """
     if db.scalar(select(Book.id).where(Book.isbn == data.isbn)) is not None:
-        raise ConflictError("A book with this ISBN already exists")
+        raise ConflictError(DUPLICATE_ISBN)
     book = Book(**data.model_dump())
     db.add(book)
-    db.commit()
+    commit_or_conflict(db, DUPLICATE_ISBN)
     db.refresh(book)
     return book
 

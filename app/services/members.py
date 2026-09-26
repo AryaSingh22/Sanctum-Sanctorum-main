@@ -5,6 +5,7 @@ from typing import List
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.db import commit_or_conflict
 from app.errors import ConflictError, ForbiddenError, NotFoundError
 from app.models import Loan, Member, MemberTier, Order, OrderStatus
 from app.schemas import MemberCreate, MemberStats
@@ -19,6 +20,8 @@ TIER_ORDER: List[str] = [
 
 # Minimum tier allowed to buy or borrow restricted books.
 RESTRICTED_MIN_TIER = MemberTier.MASTER.value
+
+DUPLICATE_EMAIL = "A member with this email already exists"
 
 
 def tier_at_least(tier: str, minimum: str) -> bool:
@@ -38,10 +41,10 @@ def create_member(db: Session, data: MemberCreate, now: datetime) -> Member:
     Rules: email (already stripped + lowercased) must be unique -> 409; created_at = now.
     """
     if db.scalar(select(Member.id).where(Member.email == data.email)) is not None:
-        raise ConflictError("A member with this email already exists")
+        raise ConflictError(DUPLICATE_EMAIL)
     member = Member(name=data.name, email=data.email, tier=data.tier.value, created_at=now)
     db.add(member)
-    db.commit()
+    commit_or_conflict(db, DUPLICATE_EMAIL)
     db.refresh(member)
     return member
 
