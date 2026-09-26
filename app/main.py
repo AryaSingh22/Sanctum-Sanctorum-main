@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 import app.models  # noqa: F401  (registers tables on Base.metadata)
 from app.clock import get_now
 from app.db import Base, SessionLocal, engine
+from app.errors import ConflictError, DomainError, ForbiddenError, NotFoundError
 from app.routers import books, loans, members, orders, reports
 from app.schemas import HealthOut
 from app.seed import seed_if_empty
@@ -30,6 +31,14 @@ async def not_implemented_handler(_: Request, exc: NotImplementedError) -> JSONR
     return JSONResponse(status_code=501, content={"detail": f"Not implemented: {exc}"})
 
 
+# HTTP status for each business-rule error the services raise.
+DOMAIN_ERROR_STATUS = {NotFoundError: 404, ForbiddenError: 403, ConflictError: 409}
+
+
+async def domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:
+    return JSONResponse(status_code=DOMAIN_ERROR_STATUS[type(exc)], content={"detail": str(exc)})
+
+
 def create_app(init_db: bool = True) -> FastAPI:
     application = FastAPI(
         title="Sanctum Sanctorum Bookstore",
@@ -43,6 +52,7 @@ def create_app(init_db: bool = True) -> FastAPI:
         allow_headers=["*"],
     )
     application.add_exception_handler(NotImplementedError, not_implemented_handler)
+    application.add_exception_handler(DomainError, domain_error_handler)
 
     @application.get("/health", response_model=HealthOut, tags=["health"])
     def health():

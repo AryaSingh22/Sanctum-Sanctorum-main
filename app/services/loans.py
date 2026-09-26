@@ -2,10 +2,10 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.errors import ConflictError, NotFoundError
 from app.models import Book, Loan, Member, MemberTier
 from app.schemas import LoanCreate, LoanOut, LoanStatus
 from app.services.books import get_book
@@ -73,7 +73,7 @@ def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
         ensure_can_access_restricted(member)
     ensure_member_can_borrow(db, member, book, now)
     if book.stock <= 0:
-        raise HTTPException(status_code=409, detail="Book is out of stock")
+        raise ConflictError("Book is out of stock")
 
     book.stock -= 1
     loan = Loan(member_id=member.id, book_id=book.id, borrowed_at=now, due_at=now + LOAN_PERIOD, late_fee_cents=0)
@@ -87,19 +87,19 @@ def ensure_member_can_borrow(db: Session, member: Member, book: Book, now: datet
     """Raise 409 if the member has an overdue loan, already holds this book, or is at their tier limit."""
     open_loans = db.scalars(select(Loan).where(Loan.member_id == member.id, Loan.returned_at.is_(None))).all()
     if any(loan.is_overdue(now) for loan in open_loans):
-        raise HTTPException(status_code=409, detail="Member has an overdue loan")
+        raise ConflictError("Member has an overdue loan")
     if any(loan.book_id == book.id for loan in open_loans):
-        raise HTTPException(status_code=409, detail="Member already has this book on loan")
+        raise ConflictError("Member already has this book on loan")
     limit = TIER_LOAN_LIMIT[member.tier]
     if limit is not None and len(open_loans) >= limit:
-        raise HTTPException(status_code=409, detail=f"Loan limit of {limit} reached for tier '{member.tier}'")
+        raise ConflictError(f"Loan limit of {limit} reached for tier '{member.tier}'")
 
 
 def load_loan(db: Session, loan_id: int) -> Loan:
     """Return the Loan row by id, or raise 404."""
     loan = db.get(Loan, loan_id)
     if loan is None:
-        raise HTTPException(status_code=404, detail="Loan not found")
+        raise NotFoundError("Loan not found")
     return loan
 
 
@@ -116,7 +116,7 @@ def return_loan(db: Session, loan_id: int, now: datetime) -> LoanOut:
     """
     loan = load_loan(db, loan_id)
     if loan.returned_at is not None:
-        raise HTTPException(status_code=409, detail="Loan has already been returned")
+        raise ConflictError("Loan has already been returned")
 
     loan.returned_at = now
     loan.late_fee_cents = calculate_late_fee(loan.due_at, now, loan.book.price_cents)

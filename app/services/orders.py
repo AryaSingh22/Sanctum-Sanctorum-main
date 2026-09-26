@@ -2,9 +2,9 @@
 from datetime import datetime
 from typing import Dict, List, NamedTuple
 
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.errors import ConflictError, NotFoundError
 from app.models import Book, Member, MemberTier, Order, OrderItem, OrderStatus
 from app.schemas import OrderCreate, OrderItemIn
 from app.services.books import get_books
@@ -50,7 +50,7 @@ def reserve_stock(books: Dict[int, Book], lines: List[OrderItemIn]) -> None:
     """Take every line's quantity out of stock, or raise 409 without changing anything."""
     short = [str(line.book_id) for line in lines if books[line.book_id].stock < line.quantity]
     if short:
-        raise HTTPException(status_code=409, detail=f"Not enough stock for book: {', '.join(short)}")
+        raise ConflictError(f"Not enough stock for book: {', '.join(short)}")
     for line in lines:
         books[line.book_id].stock -= line.quantity
 
@@ -96,7 +96,7 @@ def get_order(db: Session, order_id: int) -> Order:
     """Return an order by id, or raise 404."""
     order = db.get(Order, order_id)
     if order is None:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise NotFoundError("Order not found")
     return order
 
 
@@ -104,7 +104,7 @@ def pay_order(db: Session, order_id: int) -> Order:
     """Mark a pending order as paid. 404 if missing; 409 if not pending."""
     order = get_order(db, order_id)
     if order.status != OrderStatus.PENDING.value:
-        raise HTTPException(status_code=409, detail=f"Cannot pay an order that is {order.status}")
+        raise ConflictError(f"Cannot pay an order that is {order.status}")
     order.status = OrderStatus.PAID.value
     db.commit()
     db.refresh(order)
@@ -115,7 +115,7 @@ def cancel_order(db: Session, order_id: int) -> Order:
     """Cancel a pending order and restore the reserved stock. 404 if missing; 409 if not pending."""
     order = get_order(db, order_id)
     if order.status != OrderStatus.PENDING.value:
-        raise HTTPException(status_code=409, detail=f"Cannot cancel an order that is {order.status}")
+        raise ConflictError(f"Cannot cancel an order that is {order.status}")
     order.status = OrderStatus.CANCELLED.value
     for item in order.items:
         item.book.stock += item.quantity

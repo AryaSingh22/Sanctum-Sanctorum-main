@@ -2,10 +2,10 @@
 from datetime import datetime
 from typing import List
 
-from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.errors import ConflictError, ForbiddenError, NotFoundError
 from app.models import Loan, Member, MemberTier, Order, OrderStatus
 from app.schemas import MemberCreate, MemberStats
 
@@ -29,9 +29,7 @@ def tier_at_least(tier: str, minimum: str) -> bool:
 def ensure_can_access_restricted(member: Member) -> None:
     """Raise 403 unless the member's tier may access restricted books."""
     if not tier_at_least(member.tier, RESTRICTED_MIN_TIER):
-        raise HTTPException(
-            status_code=403, detail=f"Restricted books require tier '{RESTRICTED_MIN_TIER}' or higher"
-        )
+        raise ForbiddenError(f"Restricted books require tier '{RESTRICTED_MIN_TIER}' or higher")
 
 
 def create_member(db: Session, data: MemberCreate, now: datetime) -> Member:
@@ -40,7 +38,7 @@ def create_member(db: Session, data: MemberCreate, now: datetime) -> Member:
     Rules: email (already stripped + lowercased) must be unique -> 409; created_at = now.
     """
     if db.scalar(select(Member.id).where(Member.email == data.email)) is not None:
-        raise HTTPException(status_code=409, detail="A member with this email already exists")
+        raise ConflictError("A member with this email already exists")
     member = Member(name=data.name, email=data.email, tier=data.tier.value, created_at=now)
     db.add(member)
     db.commit()
@@ -52,7 +50,7 @@ def get_member(db: Session, member_id: int) -> Member:
     """Return a member by id, or raise 404."""
     member = db.get(Member, member_id)
     if member is None:
-        raise HTTPException(status_code=404, detail="Member not found")
+        raise NotFoundError("Member not found")
     return member
 
 

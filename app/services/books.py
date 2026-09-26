@@ -1,10 +1,10 @@
 """Book catalogue operations."""
 from typing import Dict, List, Optional
 
-from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.errors import ConflictError, NotFoundError
 from app.models import Book
 from app.schemas import BookCreate, BookPage, BookSort, BookUpdate
 
@@ -23,7 +23,7 @@ def create_book(db: Session, data: BookCreate) -> Book:
     Rules: the (already normalized) ISBN must be unique -> 409 otherwise.
     """
     if db.scalar(select(Book.id).where(Book.isbn == data.isbn)) is not None:
-        raise HTTPException(status_code=409, detail="A book with this ISBN already exists")
+        raise ConflictError("A book with this ISBN already exists")
     book = Book(**data.model_dump())
     db.add(book)
     db.commit()
@@ -35,7 +35,7 @@ def get_book(db: Session, book_id: int) -> Book:
     """Return a book by id, or raise 404."""
     book = db.get(Book, book_id)
     if book is None:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise NotFoundError("Book not found")
     return book
 
 
@@ -44,7 +44,7 @@ def get_books(db: Session, book_ids: List[int]) -> Dict[int, Book]:
     books = {book.id: book for book in db.scalars(select(Book).where(Book.id.in_(book_ids)))}
     missing = [str(book_id) for book_id in book_ids if book_id not in books]
     if missing:
-        raise HTTPException(status_code=404, detail=f"Book not found: {', '.join(missing)}")
+        raise NotFoundError(f"Book not found: {', '.join(missing)}")
     return books
 
 
